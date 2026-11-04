@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/farmboys_title_icon.jpg" width="380" alt="FarmBoys Logo" />
+</p>
+
 # 🧑‍🌾 FarmBoys
 
 A charming, vanilla-friendly companion mod for **Minecraft 26.3** running on **NeoForge**.
