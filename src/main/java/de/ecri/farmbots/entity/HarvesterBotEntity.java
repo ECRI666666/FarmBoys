@@ -138,15 +138,8 @@ public class HarvesterBotEntity extends PathfinderMob {
         if (this.level() instanceof ServerLevel serverLevel) {
             serverLevel.sendParticles(ParticleTypes.HAPPY_VILLAGER, cropPos.getX() + 0.5, cropPos.getY() + 0.3, cropPos.getZ() + 0.5, 8, 0.2, 0.1, 0.2, 0.05);
 
-            // Destroy and drop items on ground for ChestBot
+            // Destroy and drop items on ground for ChestBot (ChestBot handles replanting!)
             this.level().destroyBlock(cropPos, true);
-
-            // Replant seedling immediately
-            if (isCrop && state.getBlock() instanceof CropBlock crop) {
-                this.level().setBlock(cropPos, crop.getStateForAge(0), 3);
-            } else if (isWart) {
-                this.level().setBlock(cropPos, Blocks.NETHER_WART.defaultBlockState(), 3);
-            }
         }
 
         // 8% chance to comically recoil backward from mechanical momentum
@@ -201,8 +194,9 @@ public class HarvesterBotEntity extends PathfinderMob {
             BlockPos origin = this.bot.blockPosition();
             List<BlockPos> candidates = new ArrayList<>();
 
-            for (int dx = -14; dx <= 14; dx += 2) {
-                for (int dz = -14; dz <= 14; dz += 2) {
+            for (int dx = -16; dx <= 16; dx++) {
+                for (int dz = -16; dz <= 16; dz++) {
+                    if (dx * dx + dz * dz > 256) continue;
                     for (int dy = -2; dy <= 1; dy++) {
                         BlockPos check = origin.offset(dx, dy, dz);
                         if (this.cooldowns.containsKey(check)) continue;

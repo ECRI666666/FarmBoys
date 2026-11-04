@@ -21,6 +21,8 @@ import net.minecraft.world.entity.ai.goal.FloatGoal;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.Level;
@@ -38,9 +40,11 @@ import java.util.EnumSet;
 import java.util.List;
 
 /**
- * ChestBot: The walking wooden chest and seeder!
- * Picks up harvested crops from the ground, plants fresh seeds on tilled soil,
- * deposits harvests into nearby real chests, and sometimes trips comically on a pebble!
+ * ChestBot: The walking wooden chest, sower, and courier!
+ * - Vacuums up all crops and seeds dropped on the ground.
+ * - Sows fresh seeds onto empty tilled farmland.
+ * - Carries harvests to the nearest chest/barrel and deposits them (while keeping a seed reserve).
+ * - Sometimes trips comically on a pebble!
  */
 public class ChestBotEntity extends PathfinderMob {
     public static final EntityDataAccessor<Integer> ITEM_COUNT = SynchedEntityData.defineId(ChestBotEntity.class, EntityDataSerializers.INT);
@@ -61,7 +65,7 @@ public class ChestBotEntity extends PathfinderMob {
             .add(Attributes.MAX_HEALTH, 15.0)
             .add(Attributes.MOVEMENT_SPEED, 0.23)
             .add(Attributes.STEP_HEIGHT, 1.0)
-            .add(Attributes.FOLLOW_RANGE, 24.0);
+            .add(Attributes.FOLLOW_RANGE, 32.0);
     }
 
     @Override
@@ -75,9 +79,9 @@ public class ChestBotEntity extends PathfinderMob {
     @Override
     protected void registerGoals() {
         this.goalSelector.addGoal(0, new FloatGoal(this));
-        this.goalSelector.addGoal(1, new PickUpCropsGoal(this));
-        this.goalSelector.addGoal(2, new PlantSeedsGoal(this));
-        this.goalSelector.addGoal(3, new DepositToChestGoal(this));
+        this.goalSelector.addGoal(1, new PickUpCropsGoal(this));    // 1st Priority: Vacuum ground drops
+        this.goalSelector.addGoal(2, new PlantSeedsGoal(this));     // 2nd Priority: Plant bare farmland
+        this.goalSelector.addGoal(3, new DepositToChestGoal(this)); // 3rd Priority: Store harvest in nearest chest
         this.goalSelector.addGoal(4, new ChestBotWanderGoal(this));
     }
 
@@ -137,7 +141,6 @@ public class ChestBotEntity extends PathfinderMob {
         this.level().playSound(null, this.getX(), this.getY(), this.getZ(),
             SoundEvents.NOTE_BLOCK_CHIME.value(), SoundSource.NEUTRAL, 0.7f, 1.8f);
 
-        // Drop 1 single item comically
         ItemStack first = this.inventory.getFirst();
         ItemStack dropped = first.split(1);
         if (first.isEmpty()) {
@@ -198,10 +201,27 @@ public class ChestBotEntity extends PathfinderMob {
             }
         }
 
-        // Random chance to comically trip while walking with items
-        if (!this.level().isClientSide() && tripTimer <= 0 && !this.inventory.isEmpty()) {
-            if (this.getDeltaMovement().horizontalDistanceSqr() > 0.002 && this.random.nextFloat() < 0.003f) {
-                triggerTrip();
+        // Continuous vacuuming while moving around
+        if (!this.level().isClientSide() && this.emptyCooldown <= 0) {
+            List<ItemEntity> nearby = this.level().getEntitiesOfClass(
+                ItemEntity.class,
+                this.getBoundingBox().inflate(2.2),
+                e -> e.isAlive() && !e.getItem().isEmpty() && isFarmingItem(e.getItem())
+            );
+            for (ItemEntity item : nearby) {
+                this.addItem(item.getItem());
+                this.level().playSound(null, this.getX(), this.getY(), this.getZ(),
+                    SoundEvents.ITEM_PICKUP, SoundSource.NEUTRAL, 0.5f, 1.4f);
+                if (item.getItem().isEmpty()) {
+                    item.discard();
+                }
+            }
+
+            // Comical tripping chance when walking with items
+            if (tripTimer <= 0 && !this.inventory.isEmpty()) {
+                if (this.getDeltaMovement().horizontalDistanceSqr() > 0.002 && this.random.nextFloat() < 0.0025f) {
+                    triggerTrip();
+                }
             }
         }
     }
@@ -240,15 +260,29 @@ public class ChestBotEntity extends PathfinderMob {
     }
 
     public static boolean isFarmingItem(ItemStack stack) {
+        if (stack.isEmpty()) return false;
+        Item item = stack.getItem();
+        if (item instanceof BlockItem bi && bi.getBlock() instanceof CropBlock) return true;
         return stack.is(Items.WHEAT) || stack.is(Items.WHEAT_SEEDS) ||
-               stack.is(Items.CARROT) || stack.is(Items.POTATO) ||
+               stack.is(Items.CARROT) || stack.is(Items.POTATO) || stack.is(Items.POISONOUS_POTATO) ||
                stack.is(Items.BEETROOT) || stack.is(Items.BEETROOT_SEEDS) ||
                stack.is(Items.MELON_SEEDS) || stack.is(Items.PUMPKIN_SEEDS) ||
-               stack.is(Items.PUMPKIN) || stack.is(Items.MELON_SLICE) ||
-               stack.is(Items.BONE_MEAL) || stack.is(Items.NETHER_WART);
+               stack.is(Items.PUMPKIN) || stack.is(Items.MELON_SLICE) || stack.is(Items.MELON) ||
+               stack.is(Items.BONE_MEAL) || stack.is(Items.NETHER_WART) ||
+               stack.is(Items.TORCHFLOWER_SEEDS) || stack.is(Items.PITCHER_POD) ||
+               stack.is(Items.SWEET_BERRIES) || stack.is(Items.COCOA_BEANS) ||
+               stack.is(Items.SUGAR_CANE) || stack.is(Items.BAMBOO) || stack.is(Items.APPLE);
     }
 
-    /** AI Goal: Picks up dropped crops/seeds from the ground */
+    public static boolean isPlantableSeed(ItemStack stack) {
+        if (stack.isEmpty()) return false;
+        return stack.is(Items.WHEAT_SEEDS) || stack.is(Items.CARROT) ||
+               stack.is(Items.POTATO) || stack.is(Items.BEETROOT_SEEDS) ||
+               stack.is(Items.TORCHFLOWER_SEEDS) || stack.is(Items.PITCHER_POD) ||
+               stack.is(Items.PUMPKIN_SEEDS) || stack.is(Items.MELON_SEEDS);
+    }
+
+    /** AI Goal: Picks up dropped crops/seeds from the ground within 24 blocks */
     static class PickUpCropsGoal extends Goal {
         private final ChestBotEntity bot;
         private ItemEntity targetItem;
@@ -266,11 +300,11 @@ public class ChestBotEntity extends PathfinderMob {
                 searchDelay--;
                 return false;
             }
-            searchDelay = 10;
+            searchDelay = 8;
 
             List<ItemEntity> items = this.bot.level().getEntitiesOfClass(
                 ItemEntity.class,
-                this.bot.getBoundingBox().inflate(12.0),
+                this.bot.getBoundingBox().inflate(24.0),
                 e -> e.isAlive() && !e.getItem().isEmpty() && isFarmingItem(e.getItem())
             );
 
@@ -296,9 +330,9 @@ public class ChestBotEntity extends PathfinderMob {
         public void tick() {
             if (this.targetItem == null) return;
             this.bot.getLookControl().setLookAt(this.targetItem, 30.0f, 30.0f);
-            this.bot.getNavigation().moveTo(this.targetItem, 1.2);
+            this.bot.getNavigation().moveTo(this.targetItem, 1.25);
 
-            if (this.bot.distanceToSqr(this.targetItem) < 2.0) {
+            if (this.bot.distanceToSqr(this.targetItem) < 2.5) {
                 this.bot.addItem(this.targetItem.getItem());
                 this.bot.level().playSound(null, this.bot.getX(), this.bot.getY(), this.bot.getZ(),
                     SoundEvents.ITEM_PICKUP, SoundSource.NEUTRAL, 0.6f, 1.3f);
@@ -312,7 +346,7 @@ public class ChestBotEntity extends PathfinderMob {
         }
     }
 
-    /** AI Goal: Plants seeds on empty farmland */
+    /** AI Goal: Plants seeds on empty farmland within 20 blocks */
     static class PlantSeedsGoal extends Goal {
         private final ChestBotEntity bot;
         private BlockPos targetFarmland;
@@ -325,7 +359,7 @@ public class ChestBotEntity extends PathfinderMob {
 
         private ItemStack findSeed() {
             for (ItemStack s : this.bot.inventory) {
-                if (s.is(Items.WHEAT_SEEDS) || s.is(Items.CARROT) || s.is(Items.POTATO) || s.is(Items.BEETROOT_SEEDS)) {
+                if (isPlantableSeed(s)) {
                     return s;
                 }
             }
@@ -340,24 +374,33 @@ public class ChestBotEntity extends PathfinderMob {
                 searchDelay--;
                 return false;
             }
-            searchDelay = 12;
+            searchDelay = 10;
 
             BlockPos origin = this.bot.blockPosition();
-            for (int dx = -10; dx <= 10; dx += 2) {
-                for (int dz = -10; dz <= 10; dz += 2) {
-                    for (int dy = -2; dy <= 1; dy++) {
+            BlockPos closest = null;
+            double closestDistSq = Double.MAX_VALUE;
+
+            for (int dx = -20; dx <= 20; dx++) {
+                for (int dz = -20; dz <= 20; dz++) {
+                    if (dx * dx + dz * dz > 400) continue;
+                    for (int dy = -2; dy <= 2; dy++) {
                         BlockPos check = origin.offset(dx, dy, dz);
                         if (this.bot.level().getBlockState(check).is(Blocks.FARMLAND) && this.bot.level().getBlockState(check.above()).isAir()) {
-                            Path path = this.bot.getNavigation().createPath(check.above(), 1);
-                            if (path != null && path.canReach()) {
-                                this.targetFarmland = check;
-                                return true;
+                            double d = origin.distSqr(check);
+                            if (d < closestDistSq) {
+                                Path path = this.bot.getNavigation().createPath(check.above(), 1);
+                                if (path != null && path.canReach()) {
+                                    closestDistSq = d;
+                                    closest = check;
+                                }
                             }
                         }
                     }
                 }
             }
-            return false;
+
+            this.targetFarmland = closest;
+            return this.targetFarmland != null;
         }
 
         @Override
@@ -381,6 +424,10 @@ public class ChestBotEntity extends PathfinderMob {
                     if (seed.is(Items.CARROT)) cropState = Blocks.CARROTS.defaultBlockState();
                     else if (seed.is(Items.POTATO)) cropState = Blocks.POTATOES.defaultBlockState();
                     else if (seed.is(Items.BEETROOT_SEEDS)) cropState = Blocks.BEETROOTS.defaultBlockState();
+                    else if (seed.is(Items.TORCHFLOWER_SEEDS)) cropState = Blocks.TORCHFLOWER_CROP.defaultBlockState();
+                    else if (seed.is(Items.PITCHER_POD)) cropState = Blocks.PITCHER_CROP.defaultBlockState();
+                    else if (seed.is(Items.PUMPKIN_SEEDS)) cropState = Blocks.PUMPKIN_STEM.defaultBlockState();
+                    else if (seed.is(Items.MELON_SEEDS)) cropState = Blocks.MELON_STEM.defaultBlockState();
 
                     this.bot.level().setBlockAndUpdate(this.targetFarmland.above(), cropState);
                     seed.shrink(1);
@@ -395,7 +442,7 @@ public class ChestBotEntity extends PathfinderMob {
         }
     }
 
-    /** AI Goal: Deposits harvest into nearby chest containers */
+    /** AI Goal: Deposits harvest into the NEAREST chest container (keeping up to 6 seeds for planting) */
     static class DepositToChestGoal extends Goal {
         private final ChestBotEntity bot;
         private BlockPos targetChest;
@@ -406,37 +453,58 @@ public class ChestBotEntity extends PathfinderMob {
             this.setFlags(EnumSet.of(Flag.MOVE, Flag.LOOK));
         }
 
-        @Override
-        public boolean canUse() {
-            if (this.bot.isClumsyTripping() || this.bot.inventory.isEmpty()) return false;
-            if (searchDelay > 0) {
-                searchDelay--;
-                return false;
-            }
-            searchDelay = 20;
-
-            BlockPos origin = this.bot.blockPosition();
-            for (int dx = -10; dx <= 10; dx += 2) {
-                for (int dz = -10; dz <= 10; dz += 2) {
-                    for (int dy = -1; dy <= 2; dy++) {
-                        BlockPos check = origin.offset(dx, dy, dz);
-                        BlockState state = this.bot.level().getBlockState(check);
-                        if (state.is(Blocks.CHEST) || state.is(Blocks.BARREL)) {
-                            Path path = this.bot.getNavigation().createPath(check, 1);
-                            if (path != null && path.canReach()) {
-                                this.targetChest = check;
-                                return true;
-                            }
-                        }
-                    }
-                }
+        private boolean hasGoodsToDeposit() {
+            for (ItemStack s : this.bot.inventory) {
+                if (s.isEmpty()) continue;
+                // If it's a non-seed crop (e.g. wheat, carrots, potatoes, pumpkin, etc.)
+                if (!isPlantableSeed(s)) return true;
+                // If it's seeds, but we have more than 6 seeds reserve
+                if (s.getCount() > 6) return true;
             }
             return false;
         }
 
         @Override
+        public boolean canUse() {
+            if (this.bot.isClumsyTripping() || !hasGoodsToDeposit()) return false;
+            if (searchDelay > 0) {
+                searchDelay--;
+                return false;
+            }
+            searchDelay = 15;
+
+            BlockPos origin = this.bot.blockPosition();
+            BlockPos closestChest = null;
+            double closestDistSq = Double.MAX_VALUE;
+
+            // Search every coordinate in 24-block radius for the NEAREST reachable chest/barrel
+            for (int dx = -24; dx <= 24; dx++) {
+                for (int dz = -24; dz <= 24; dz++) {
+                    if (dx * dx + dz * dz > 576) continue;
+                    for (int dy = -3; dy <= 3; dy++) {
+                        BlockPos check = origin.offset(dx, dy, dz);
+                        BlockState state = this.bot.level().getBlockState(check);
+                        if (state.is(Blocks.CHEST) || state.is(Blocks.TRAPPED_CHEST) || state.is(Blocks.BARREL)) {
+                            double d = origin.distSqr(check);
+                            if (d < closestDistSq) {
+                                Path path = this.bot.getNavigation().createPath(check, 1);
+                                if (path != null && path.canReach()) {
+                                    closestDistSq = d;
+                                    closestChest = check;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            this.targetChest = closestChest;
+            return this.targetChest != null;
+        }
+
+        @Override
         public boolean canContinueToUse() {
-            return !this.bot.isClumsyTripping() && this.targetChest != null && !this.bot.inventory.isEmpty();
+            return !this.bot.isClumsyTripping() && this.targetChest != null && hasGoodsToDeposit();
         }
 
         @Override
@@ -449,33 +517,52 @@ public class ChestBotEntity extends PathfinderMob {
                 BlockEntity be = this.bot.level().getBlockEntity(this.targetChest);
                 if (be instanceof Container container) {
                     this.bot.entityData.set(LID_OPEN, true);
-                    this.bot.lidOpenTicks = 20;
+                    this.bot.lidOpenTicks = 25;
 
                     for (int i = 0; i < this.bot.inventory.size(); i++) {
                         ItemStack stack = this.bot.inventory.get(i);
                         if (stack.isEmpty()) continue;
 
+                        // Keep up to 6 seeds for planting new crops!
+                        int depositAmount = stack.getCount();
+                        if (isPlantableSeed(stack)) {
+                            depositAmount = Math.max(0, stack.getCount() - 6);
+                        }
+                        if (depositAmount <= 0) continue;
+
+                        ItemStack toDeposit = stack.split(depositAmount);
+
                         for (int s = 0; s < container.getContainerSize(); s++) {
                             ItemStack inChest = container.getItem(s);
                             if (inChest.isEmpty()) {
-                                container.setItem(s, stack.copy());
-                                stack.setCount(0);
+                                container.setItem(s, toDeposit.copy());
+                                toDeposit.setCount(0);
                                 break;
-                            } else if (ItemStack.isSameItemSameComponents(inChest, stack)) {
-                                int add = Math.min(container.getMaxStackSize() - inChest.getCount(), stack.getCount());
+                            } else if (ItemStack.isSameItemSameComponents(inChest, toDeposit)) {
+                                int add = Math.min(container.getMaxStackSize() - inChest.getCount(), toDeposit.getCount());
                                 if (add > 0) {
                                     inChest.grow(add);
-                                    stack.shrink(add);
-                                    if (stack.isEmpty()) break;
+                                    toDeposit.shrink(add);
+                                    if (toDeposit.isEmpty()) break;
                                 }
                             }
                         }
+
+                        // If chest was full, return remainder to bot
+                        if (!toDeposit.isEmpty()) {
+                            stack.grow(toDeposit.getCount());
+                        }
                     }
+
                     this.bot.inventory.removeIf(ItemStack::isEmpty);
                     this.bot.updateItemCount();
 
                     this.bot.level().playSound(null, this.targetChest.getX(), this.targetChest.getY(), this.targetChest.getZ(),
-                        SoundEvents.CHEST_CLOSE, SoundSource.BLOCKS, 0.7f, 1.2f);
+                        SoundEvents.CHEST_CLOSE, SoundSource.BLOCKS, 0.8f, 1.2f);
+
+                    if (this.bot.level() instanceof ServerLevel serverLevel) {
+                        serverLevel.sendParticles(ParticleTypes.HAPPY_VILLAGER, this.bot.getX(), this.bot.getY() + 0.5, this.bot.getZ(), 6, 0.2, 0.2, 0.2, 0.05);
+                    }
                 }
                 this.targetChest = null;
                 this.bot.getNavigation().stop();
