@@ -1,0 +1,8 @@
+{
+  "item.farmbots.can_bot": "CanBot",
+  "item.farmbots.harvester_bot": "HarvesterBot",
+  "item.farmbots.chest_bot": "ChestBot",
+  "entity.farmbots.can_bot": "CanBot",
+  "entity.farmbots.harvester_bot": "HarvesterBot",
+  "entity.farmbots.chest_bot": "ChestBot"
+}

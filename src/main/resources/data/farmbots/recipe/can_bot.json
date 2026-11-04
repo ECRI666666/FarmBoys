@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "CWC",
+    "CRC",
+    "III"
+  ],
+  "key": {
+    "C": "minecraft:copper_ingot",
+    "W": "minecraft:water_bucket",
+    "R": "minecraft:redstone",
+    "I": "minecraft:iron_ingot"
+  },
+  "result": {
+    "id": "farmbots:can_bot",
+    "count": 1
+  }
+}
