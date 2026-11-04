@@ -1,0 +1,8 @@
+{
+  "item.farmboys.can_boy": "CanBoy",
+  "item.farmboys.harvester_boy": "HarvesterBoy",
+  "item.farmboys.chest_boy": "ChestBoy",
+  "entity.farmboys.can_boy": "CanBoy",
+  "entity.farmboys.harvester_boy": "HarvesterBoy",
+  "entity.farmboys.chest_boy": "ChestBoy"
+}

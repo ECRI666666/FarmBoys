@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "PCP",
+    "PRP",
+    "III"
+  ],
+  "key": {
+    "P": "minecraft:oak_planks",
+    "C": "minecraft:chest",
+    "R": "minecraft:redstone",
+    "I": "minecraft:iron_ingot"
+  },
+  "result": {
+    "id": "farmboys:chest_boy",
+    "count": 1
+  }
+}
